@@ -5,17 +5,17 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 import scipy.io
 import numpy as np
-import matplotlib.pyplot as plt
 
-X, y = make_moons(n_samples=5000, random_state=42, noise=0.1)
-X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
+
+#X, y = make_moons(n_samples=5000, random_state=42, noise=0.1)
+#X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
+import utils
 
 SwissRoll = scipy.io.loadmat('dataset/SwissRollData.mat')
 y_train = np.array(SwissRoll['Ct'])
 X_train = np.array(SwissRoll['Yt'])
 y_test = np.array(SwissRoll['Cv'])
 X_test = np.array(SwissRoll['Yv'])
-
 
 X_train = X_train.reshape(X_train.shape[1], X_train.shape[0])
 y_train_hot = y_train.reshape(-y_train.shape[1], y_train.shape[0])
@@ -28,18 +28,15 @@ y_test = np.array([y_test_hot[i][1] for i in range(len(y_test_hot))])
 y_train = np.argmax(y_train_hot, axis=1)
 y_test = np.argmax(y_test_hot, axis=1)
 
-#X_test = X_train[:100]
-#y_test = y_train[:100]
-
-print(X_train.shape, y_train.shape, X_test.shape, y_test.shape)
-
 minibatch_size = 50
 epochs = 10
 n_feature = 2
 n_class = 2
 n_iter = 10
-learning_rate = 0.02  # 1e-4
-#n_iter = int(len(X_train) / minibatch_size)
+learning_rate = 0.0002  # 1e-4
+n_iter = int(len(X_train) / minibatch_size)
+
+print(X_train.shape, y_train.shape, X_test.shape, y_test.shape)
 
 def make_network(n_hidden=3):
     # Initialize weights with Standard Normal random variables
@@ -47,12 +44,10 @@ def make_network(n_hidden=3):
         W1=np.random.randn(n_feature, n_hidden),
         W2=np.random.randn(n_hidden, n_class)
     )
-
     return model
 
 def softmax(x):
     return np.exp(x) / np.exp(x).sum()
-
 
 def forward(x, model):
     # Input to hidden
@@ -76,28 +71,40 @@ def backward(model, xs, hs, errs):
     dW1 = xs.T.dot(dh)
     return dict(W1=dW1, W2=dW2)
 
-def sgd(model, X_train, y_train, minibatch_size):
-    for iter in range(n_iter):
+def evaluate(model):
+    y_pred = np.zeros_like(y_test)
+    for i, x in enumerate(X_test):
+        _, prob = forward(x, model)
+        y = np.argmax(prob)
+        y_pred[i] = y
+    accuracy = (y_pred == y_test).sum() / y_test.size
+    return accuracy
+
+
+
+def SGD_Optimizer(model, X_train, y_train, minibatch_size):
+    accuracy_scores = []
+    for epoch in range(epochs):
         #print('Iteration {}'.format(iter))
 
         # Randomize data point
         X_train, y_train = shuffle(X_train, y_train)
 
         for i in range(0, X_train.shape[0], minibatch_size):
-            # Get pair of (X, y) of the current minibatch/chunk
             X_train_mini = X_train[i:i + minibatch_size]
             y_train_mini = y_train[i:i + minibatch_size]
+            model = SGD_Step(model, X_train_mini, y_train_mini)
 
-            model = sgd_step(model, X_train_mini, y_train_mini)
+        accuracy = evaluate(model)
+        accuracy_scores.append(accuracy)
+        print('Epoch {}, accuracy {}'.format(epoch, accuracy))
+    return model, accuracy_scores
 
-    return model
-
-def sgd_step(model, X_train, y_train):
-    grad = get_minibatch_grad(model, X_train, y_train)
+def SGD_Step(model, X_train, y_train):
+    grads = get_minibatch_grad(model, X_train, y_train)
     model = model.copy()
-    # Update every parameters in our networks (W1 and W2) using their gradients
-    for layer in grad:
-        model[layer] += learning_rate * grad[layer]
+    for layer in grads:
+        model[layer] += learning_rate * grads[layer]
     return model
 
 def get_minibatch_grad(model, X_train, y_train):
@@ -106,11 +113,9 @@ def get_minibatch_grad(model, X_train, y_train):
     for x, cls_idx in zip(X_train, y_train):
         h, y_pred = forward(x, model)
 
-        # Create probability distribution of true label
         y_true = np.zeros(n_class)
         y_true[int(cls_idx)] = 1.
 
-        # Compute the gradient of output layer
         err = y_true - y_pred
 
         # Accumulate the informations of minibatch
@@ -124,35 +129,6 @@ def get_minibatch_grad(model, X_train, y_train):
     # Backprop using the informations we get from the current minibatch
     return backward(model, np.array(xs), np.array(hs), np.array(errs))
 
-
-# Create placeholder to accumulate prediction accuracy
-accs = np.zeros(epochs)
-
-for k in range(epochs):
-
-    # Reset model
-    model = make_network()
-
-    # Train the model
-    model = sgd(model, X_train, y_train, minibatch_size)
-
-    y_pred = np.zeros_like(y_test)
-
-    for i, x in enumerate(X_test):
-        # Predict the distribution of label
-        _, prob = forward(x, model)
-        # Get label by picking the most probable one
-        y = np.argmax(prob)
-        y_pred[i] = y
-
-    # Compare the predictions with the true labels and take the percentage
-    accs[k] = (y_pred == y_test).sum() / y_test.size
-    print('Batch {}, accuracy {}'.format(k, accs[k]))
-# plotting the points
-plt.plot(range(epochs), accs)
-plt.xlabel('epoch')
-plt.ylabel('accuracy')
-plt.ylim(ymin=0, ymax=1)
-plt.title('accuracy over epochs')
-plt.show()
-print('Mean accuracy: {}, std: {}'.format(accs.mean(), accs.std()))
+model = make_network()
+trained_model, accuracy_scores = SGD_Optimizer(model, X_train, y_train, minibatch_size)
+utils.plot_scores(accuracy_scores)
